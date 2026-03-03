@@ -176,6 +176,10 @@ def compute_knn(
     if isinstance(data, torch.Tensor):
         data = data.numpy()
 
+    # Default k when None (e.g. from ${neighborhood_size} resolving to null)
+    if k is None:
+        k = 15
+
     # Check cache for a usable superset
     if cache is not None:
         key = _content_key(data)

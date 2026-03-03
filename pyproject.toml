@@ -53,8 +53,9 @@ dependencies = [
     "torchsde>=0.2",
     # Optimal transport
     "POT>=0.9",
-    # Persistent homology
+    # Persistent homology / Reeb graphs
     "ripser>=0.6",
+    "gudhi>=3.0",
     # SLURM cluster submission
     "hydra-submitit-launcher>=1.2",
     # Community detection
