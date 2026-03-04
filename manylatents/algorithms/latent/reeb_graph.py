@@ -213,7 +213,7 @@ class ReebGraphModule(LatentModule):
     With ``overlap>0`` (overlapping covers), points near bin boundaries
     belong to multiple nodes.
 
-    The Reeb graph adjacency is exposed via ``kernel_matrix()`` and node
+    The Reeb graph adjacency is exposed via ``adjacency_matrix()`` and node
     positions in the input space via ``node_coordinates``.
 
     Parameters
@@ -372,14 +372,14 @@ class ReebGraphModule(LatentModule):
             result = result.to(device=x.device)
         return result
 
-    def kernel_matrix(self, ignore_diagonal: bool = False) -> np.ndarray:
-        """Return the Reeb graph adjacency as an (M, M) dense array.
+    def adjacency_matrix(self, ignore_diagonal: bool = False) -> np.ndarray:
+        """Return the Reeb graph adjacency as an (M, M) binary dense array.
 
         M is the number of Reeb nodes, not the number of data points.
         """
         if not self._is_fitted:
             raise RuntimeError("ReebGraphModule is not fitted. Call fit() first.")
-        K = self._adjacency.copy()
+        A = self._adjacency.copy()
         if ignore_diagonal:
-            np.fill_diagonal(K, 0)
-        return K
+            np.fill_diagonal(A, 0)
+        return A

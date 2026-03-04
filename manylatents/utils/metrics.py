@@ -335,6 +335,34 @@ def flatten_and_unroll_metrics(
                 flat[flat_name] = cfg_copy
 
     return flat
+def resolve_matrix(module, source: str = "kernel", **kwargs) -> np.ndarray:
+    """Get a matrix from a module by name.
+
+    Args:
+        module: Fitted LatentModule instance.
+        source: One of ``"kernel"``, ``"affinity"``, or ``"adjacency"``.
+        **kwargs: Passed to the matrix method (e.g. ``ignore_diagonal``).
+
+    Returns:
+        The requested matrix as a numpy array.
+
+    Raises:
+        ValueError: If *source* is not a recognised name.
+        NotImplementedError: If the module does not expose the requested matrix.
+    """
+    methods = {
+        "kernel": module.kernel_matrix,
+        "affinity": module.affinity_matrix,
+        "adjacency": module.adjacency_matrix,
+    }
+    if source not in methods:
+        raise ValueError(
+            f"Unknown matrix_source '{source}'. "
+            f"Choose from: {', '.join(methods)}"
+        )
+    return methods[source](**kwargs)
+
+
 ###### METRIC-SPECIFIC HELPERS
 def haversine_vectorized(coords):
     """

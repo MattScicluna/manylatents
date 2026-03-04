@@ -5,6 +5,7 @@ import numpy as np
 import networkx as nx
 from manylatents.algorithms.latent.latent_module_base import LatentModule
 from manylatents.metrics.registry import register_metric
+from manylatents.utils.metrics import resolve_matrix
 
 def connected_components(kernel_matrix: np.ndarray) -> np.ndarray:
     """
@@ -27,29 +28,31 @@ def connected_components(kernel_matrix: np.ndarray) -> np.ndarray:
 
 @register_metric(
     aliases=["connected_components"],
-    default_params={"ignore_diagonal": False},
+    default_params={"ignore_diagonal": False, "matrix_source": "kernel"},
     description="Number of connected components in the kNN graph",
 )
-def ConnectedComponents(dataset, embeddings: np.ndarray, module: LatentModule, ignore_diagonal: bool = False, cache: Optional[dict] = None) -> np.ndarray:
+def ConnectedComponents(dataset, embeddings: np.ndarray, module: LatentModule, ignore_diagonal: bool = False, matrix_source: str = "kernel", cache: Optional[dict] = None) -> np.ndarray:
     """
-    Compute connected components from the module's kernel matrix.
+    Compute connected components from the module's graph matrix.
 
     Args:
         dataset: Dataset object (unused).
         embeddings: Low-dimensional embeddings (unused).
-        module: LatentModule instance with kernel_matrix method.
-        ignore_diagonal: Whether to ignore diagonal when getting kernel matrix.
+        module: LatentModule instance.
+        ignore_diagonal: Whether to ignore diagonal when getting the matrix.
+        matrix_source: Which matrix to use: "kernel", "affinity", or "adjacency".
 
     Returns:
-        Array of component sizes, or [nan] if kernel matrix not available.
+        Array of component sizes, or [nan] if matrix not available.
     """
     try:
-        kernel_mat = module.kernel_matrix(ignore_diagonal=ignore_diagonal)
+        mat = resolve_matrix(module, source=matrix_source, ignore_diagonal=ignore_diagonal)
     except (NotImplementedError, AttributeError):
         warnings.warn(
-            f"ConnectedComponents metric skipped: {module.__class__.__name__} does not expose a kernel_matrix.",
+            f"ConnectedComponents metric skipped: {module.__class__.__name__} "
+            f"does not expose a {matrix_source}_matrix.",
             RuntimeWarning
         )
         return np.array([np.nan])
 
-    return connected_components(kernel_matrix=kernel_mat)
+    return connected_components(kernel_matrix=mat)

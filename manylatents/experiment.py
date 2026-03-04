@@ -634,6 +634,14 @@ def run_algorithm(cfg: DictConfig, input_data_holder: Optional[Dict] = None) -> 
             except (NotImplementedError, AttributeError):
                 pass
 
+            # Attach adjacency matrix if the algorithm exposes one
+            try:
+                adj = algorithm.adjacency_matrix()
+                embeddings["adjacency_matrix"] = adj
+                logger.info(f"Adjacency matrix attached: shape={adj.shape}")
+            except (NotImplementedError, AttributeError):
+                pass
+
             # Evaluate embeddings
             logger.info(f"Evaluating embeddings from {type(algorithm).__name__}...")
             t_eval_start = time.perf_counter()

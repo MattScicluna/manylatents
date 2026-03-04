@@ -4,6 +4,7 @@ from typing import Optional
 import numpy as np
 from manylatents.algorithms.latent.latent_module_base import LatentModule
 from manylatents.metrics.registry import register_metric
+from manylatents.utils.metrics import resolve_matrix
 
 
 def kernel_matrix_sparsity(embeddings: np.ndarray, kernel_matrix: np.ndarray, threshold: float = 1e-10) -> float:
@@ -65,10 +66,10 @@ def kernel_matrix_density(embeddings: np.ndarray, kernel_matrix: np.ndarray, thr
 
 @register_metric(
     aliases=["kernel_sparsity"],
-    default_params={"threshold": 1e-10, "ignore_diagonal": False},
+    default_params={"threshold": 1e-10, "ignore_diagonal": False, "matrix_source": "kernel"},
     description="Sparsity of the kernel/affinity matrix",
 )
-def KernelMatrixSparsity(dataset, embeddings: np.ndarray, module: LatentModule, threshold: float = 1e-10, ignore_diagonal: bool = False, cache: Optional[dict] = None) -> float:
+def KernelMatrixSparsity(dataset, embeddings: np.ndarray, module: LatentModule, threshold: float = 1e-10, ignore_diagonal: bool = False, matrix_source: str = "kernel", cache: Optional[dict] = None) -> float:
     """
     Metric wrapper for kernel matrix sparsity computation.
 
@@ -77,29 +78,31 @@ def KernelMatrixSparsity(dataset, embeddings: np.ndarray, module: LatentModule, 
         embeddings (np.ndarray): Low-dimensional embeddings from LatentModule.
         module (LatentModule): The fitted LatentModule.
         threshold (float): Values below this threshold are considered zero.
-        ignore_diagonal (bool): Whether to ignore diagonal when getting kernel matrix.
+        ignore_diagonal (bool): Whether to ignore diagonal when getting the matrix.
+        matrix_source (str): Which matrix to use: "kernel", "affinity", or "adjacency".
 
     Returns:
-        float: Sparsity ratio or NaN if kernel_matrix is not available.
+        float: Sparsity ratio or NaN if the requested matrix is not available.
     """
     try:
-        kernel_mat = module.kernel_matrix(ignore_diagonal=ignore_diagonal)
+        mat = resolve_matrix(module, source=matrix_source, ignore_diagonal=ignore_diagonal)
     except (NotImplementedError, AttributeError):
         warnings.warn(
-            f"KernelMatrixSparsity metric skipped: {module.__class__.__name__} does not expose a kernel_matrix.",
+            f"KernelMatrixSparsity metric skipped: {module.__class__.__name__} "
+            f"does not expose a {matrix_source}_matrix.",
             RuntimeWarning
         )
         return np.nan
 
-    return kernel_matrix_sparsity(embeddings=embeddings, kernel_matrix=kernel_mat, threshold=threshold)
+    return kernel_matrix_sparsity(embeddings=embeddings, kernel_matrix=mat, threshold=threshold)
 
 
 @register_metric(
     aliases=["kernel_density"],
-    default_params={"threshold": 1e-10, "ignore_diagonal": False},
+    default_params={"threshold": 1e-10, "ignore_diagonal": False, "matrix_source": "kernel"},
     description="Density of the kernel/affinity matrix",
 )
-def KernelMatrixDensity(dataset, embeddings: np.ndarray, module: LatentModule, threshold: float = 1e-10, ignore_diagonal: bool = False, cache: Optional[dict] = None) -> float:
+def KernelMatrixDensity(dataset, embeddings: np.ndarray, module: LatentModule, threshold: float = 1e-10, ignore_diagonal: bool = False, matrix_source: str = "kernel", cache: Optional[dict] = None) -> float:
     """
     Metric wrapper for kernel matrix density computation.
 
@@ -108,18 +111,20 @@ def KernelMatrixDensity(dataset, embeddings: np.ndarray, module: LatentModule, t
         embeddings (np.ndarray): Low-dimensional embeddings from LatentModule.
         module (LatentModule): The fitted LatentModule.
         threshold (float): Values below this threshold are considered zero.
-        ignore_diagonal (bool): Whether to ignore diagonal when getting kernel matrix.
+        ignore_diagonal (bool): Whether to ignore diagonal when getting the matrix.
+        matrix_source (str): Which matrix to use: "kernel", "affinity", or "adjacency".
 
     Returns:
-        float: Density ratio or NaN if kernel_matrix is not available.
+        float: Density ratio or NaN if the requested matrix is not available.
     """
     try:
-        kernel_mat = module.kernel_matrix(ignore_diagonal=ignore_diagonal)
+        mat = resolve_matrix(module, source=matrix_source, ignore_diagonal=ignore_diagonal)
     except (NotImplementedError, AttributeError):
         warnings.warn(
-            f"KernelMatrixDensity metric skipped: {module.__class__.__name__} does not expose a kernel_matrix.",
+            f"KernelMatrixDensity metric skipped: {module.__class__.__name__} "
+            f"does not expose a {matrix_source}_matrix.",
             RuntimeWarning
         )
         return np.nan
 
-    return kernel_matrix_density(embeddings=embeddings, kernel_matrix=kernel_mat, threshold=threshold)
+    return kernel_matrix_density(embeddings=embeddings, kernel_matrix=mat, threshold=threshold)

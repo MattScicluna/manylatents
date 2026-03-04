@@ -88,6 +88,30 @@ class LatentModule(ABC):
             "This may be because the algorithm does not use a kernel-based approach."
         )
 
+    def adjacency_matrix(self, ignore_diagonal: bool = False) -> np.ndarray:
+        """Return the adjacency matrix (binary connectivity) of the algorithm's graph.
+
+        The adjacency matrix is a binary (0/1) matrix where entry (i,j) is 1 iff
+        nodes i and j are connected. Unlike kernel_matrix (weighted similarity)
+        or affinity_matrix (transition probabilities), this is unweighted.
+
+        The matrix may be M×M where M differs from the number of input samples N
+        (e.g., Reeb graph nodes vs data points).
+
+        Args:
+            ignore_diagonal: If True, set diagonal entries to zero. Default False.
+
+        Returns:
+            Binary numpy array representing graph connectivity.
+
+        Raises:
+            NotImplementedError: If the algorithm does not expose an adjacency matrix.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not expose an adjacency_matrix. "
+            "This may be because the algorithm does not produce a graph structure."
+        )
+
     def affinity_tensor(self) -> 'torch.Tensor':
         """Return affinity matrix as a torch.Tensor.
 

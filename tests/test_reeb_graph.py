@@ -36,7 +36,7 @@ class TestReebGraphModule:
         assert isinstance(result, torch.Tensor)
         assert result.shape[0] == data.shape[0]  # N rows
         assert result.shape[1] > 0  # M Reeb nodes
-        assert result.shape[1] == m.kernel_matrix().shape[0]  # M matches adjacency
+        assert result.shape[1] == m.adjacency_matrix().shape[0]  # M matches adjacency
 
     def test_strict_single_membership(self):
         """With overlap=0.0, each point belongs to at most one Reeb node."""
@@ -69,14 +69,14 @@ class TestReebGraphModule:
         unique_vals = set(torch.unique(result).numpy().tolist())
         assert unique_vals.issubset({0.0, 1.0})
 
-    def test_kernel_matrix(self):
-        """kernel_matrix() returns a valid (M, M) symmetric adjacency."""
+    def test_adjacency_matrix(self):
+        """adjacency_matrix() returns a valid (M, M) symmetric adjacency."""
         from manylatents.algorithms.latent.reeb_graph import ReebGraphModule
 
         data = torch.from_numpy(_make_swissroll()).float()
         m = ReebGraphModule(n_bins=5, random_state=42)
         m.fit(data)
-        K = m.kernel_matrix()
+        K = m.adjacency_matrix()
         assert K.ndim == 2
         assert K.shape[0] == K.shape[1]
         assert K.shape[0] > 0  # at least one Reeb node
@@ -101,16 +101,16 @@ class TestReebGraphModule:
         assert s["n_nodes"] > 0
 
     def test_node_coordinates(self):
-        """node_coordinates has shape (M, D) matching kernel_matrix size."""
+        """node_coordinates has shape (M, D) matching adjacency_matrix size."""
         from manylatents.algorithms.latent.reeb_graph import ReebGraphModule
 
         data = torch.from_numpy(_make_swissroll()).float()
         m = ReebGraphModule(n_bins=5, random_state=42)
         m.fit(data)
-        K = m.kernel_matrix()
+        A = m.adjacency_matrix()
         coords = m.node_coordinates
         assert coords is not None
-        assert coords.shape[0] == K.shape[0]  # M nodes
+        assert coords.shape[0] == A.shape[0]  # M nodes
         assert coords.shape[1] == data.shape[1]  # D features
         # Coordinates should be finite
         assert np.all(np.isfinite(coords))
@@ -163,7 +163,7 @@ class TestReebGraphModule:
             m.fit(data)
 
     def test_not_fitted_raises(self):
-        """transform() and kernel_matrix() raise before fit."""
+        """transform() and adjacency_matrix() raise before fit."""
         from manylatents.algorithms.latent.reeb_graph import ReebGraphModule
 
         m = ReebGraphModule()
@@ -171,4 +171,4 @@ class TestReebGraphModule:
         with pytest.raises(RuntimeError, match="not fitted"):
             m.transform(data)
         with pytest.raises(RuntimeError, match="not fitted"):
-            m.kernel_matrix()
+            m.adjacency_matrix()
