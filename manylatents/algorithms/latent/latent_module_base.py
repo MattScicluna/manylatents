@@ -112,6 +112,38 @@ class LatentModule(ABC):
             "This may be because the algorithm does not produce a graph structure."
         )
 
+    def extra_outputs(self) -> dict:
+        """Collect extra outputs from the algorithm for attachment to LatentOutputs.
+
+        Base implementation collects trajectories, affinity_matrix, adjacency_matrix,
+        and kernel_matrix when available. Subclasses can override to add their own.
+
+        Returns:
+            dict of collected outputs (empty if nothing available).
+        """
+        extras = {}
+
+        # Trajectories (stored as attribute, not a method)
+        traj = getattr(self, "trajectories", None)
+        if traj is not None:
+            if isinstance(traj, Tensor):
+                traj = traj.detach().cpu().numpy()
+            extras["trajectories"] = traj
+
+        # Matrix outputs via methods
+        for name, method_name in [
+            ("affinity_matrix", "affinity_matrix"),
+            ("adjacency_matrix", "adjacency_matrix"),
+            ("kernel_matrix", "kernel_matrix"),
+        ]:
+            try:
+                val = getattr(self, method_name)()
+                extras[name] = val
+            except (NotImplementedError, AttributeError, RuntimeError):
+                pass
+
+        return extras
+
     def affinity_tensor(self) -> 'torch.Tensor':
         """Return affinity matrix as a torch.Tensor.
 

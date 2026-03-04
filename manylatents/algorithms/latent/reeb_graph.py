@@ -383,3 +383,12 @@ class ReebGraphModule(LatentModule):
         if ignore_diagonal:
             np.fill_diagonal(A, 0)
         return A
+
+    def extra_outputs(self) -> dict:
+        """Collect ReebGraph-specific outputs in addition to base outputs."""
+        extras = super().extra_outputs()
+        if getattr(self, "node_coordinates", None) is not None:
+            extras["node_coordinates"] = self.node_coordinates
+        if getattr(self, "structural_summary", None) is not None:
+            extras["structural_summary"] = self.structural_summary
+        return extras
