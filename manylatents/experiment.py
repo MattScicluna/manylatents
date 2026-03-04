@@ -618,29 +618,13 @@ def run_algorithm(cfg: DictConfig, input_data_holder: Optional[Dict] = None) -> 
                 },
             }
 
-            # Attach trajectories if the algorithm produced them
-            traj = getattr(algorithm, "trajectories", None)
-            if traj is not None:
-                if isinstance(traj, torch.Tensor):
-                    traj = traj.detach().cpu().numpy()
-                embeddings["trajectories"] = traj
-                logger.info(f"Trajectories attached: shape={traj.shape}")
-
-            # Attach affinity matrix if the algorithm exposes one
-            try:
-                aff = algorithm.affinity_matrix()
-                embeddings["affinity_matrix"] = aff
-                logger.info(f"Affinity matrix attached: shape={aff.shape}")
-            except (NotImplementedError, AttributeError):
-                pass
-
-            # Attach adjacency matrix if the algorithm exposes one
-            try:
-                adj = algorithm.adjacency_matrix()
-                embeddings["adjacency_matrix"] = adj
-                logger.info(f"Adjacency matrix attached: shape={adj.shape}")
-            except (NotImplementedError, AttributeError):
-                pass
+            # Attach extra outputs (affinity_matrix, adjacency_matrix, etc.)
+            if isinstance(algorithm, LatentModule):
+                extras = algorithm.extra_outputs()
+                for key, val in extras.items():
+                    embeddings[key] = val
+                    shape_info = f" shape={val.shape}" if hasattr(val, 'shape') else ""
+                    logger.info(f"Extra output attached: {key}{shape_info}")
 
             # Evaluate embeddings
             logger.info(f"Evaluating embeddings from {type(algorithm).__name__}...")
@@ -908,6 +892,14 @@ def run_pipeline(cfg: DictConfig, input_data_holder: Optional[Dict] = None) -> D
             },
             "step_snapshots": step_snapshots,
         }
+
+        # Attach extra outputs from final algorithm
+        if final_algorithm is not None and isinstance(final_algorithm, LatentModule):
+            extras = final_algorithm.extra_outputs()
+            for key, val in extras.items():
+                embeddings[key] = val
+                shape_info = f" shape={val.shape}" if hasattr(val, 'shape') else ""
+                logger.info(f"Extra output attached: {key}{shape_info}")
 
         # Evaluate final embeddings
         logger.info("Evaluating final embeddings from pipeline...")
