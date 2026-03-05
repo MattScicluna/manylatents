@@ -1,0 +1,10 @@
+defaults:
+  - default
+
+_target_: manylatents.data.reasoning_trace.ReasoningTraceDataModule
+
+trace_store_path: null
+tensor_key: pooled_steps
+layer_index: -1
+mode: full
+seed: ${seed}
