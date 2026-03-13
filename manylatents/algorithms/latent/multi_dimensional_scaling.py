@@ -211,6 +211,7 @@ class MDSModule(LatentModule):
     ):
         super().__init__(n_components=n_components, init_seed=random_state, **kwargs)
         self.fit_fraction = fit_fraction
+        # MDSModule uses n_components/random_state; inner class uses ndim/seed
         self.model = MultidimensionalScaling(ndim=n_components,
                                             seed=random_state,
                                             how=how,
@@ -273,6 +274,9 @@ class MDSModule(LatentModule):
         uses internally, normalized by (n-1) so eigenvalues represent variance.
         This is computed as G = -0.5 * H * D^2 * H' / (n-1) where H is
         the centering matrix and D is the distance matrix.
+
+        The eigenvalues of this normalized Gram matrix represent the variance
+        structure that MDS preserves, analogous to PCA's variance spectrum.
 
         Args:
             ignore_diagonal: If True, set diagonal entries to zero. Default False.
