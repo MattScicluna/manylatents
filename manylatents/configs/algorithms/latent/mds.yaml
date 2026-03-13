@@ -7,5 +7,3 @@ distance_metric: euclidean  # recommended values: 'euclidean' and 'cosine'
 n_jobs: -1
 verbose: False
 fit_fraction: 1.0
-n_landmark: null
-random_landmarking: false

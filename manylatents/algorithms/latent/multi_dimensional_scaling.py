@@ -12,7 +12,7 @@ core implementation imported from a shared library, but they are combined here f
 
 from sklearn import manifold
 from sklearn.decomposition import PCA
-from scipy.spatial.distance import pdist, squareform, cdist
+from scipy.spatial.distance import pdist, squareform
 import scipy.spatial
 import numpy as np
 import torch
@@ -34,8 +34,6 @@ class MultidimensionalScaling():
                 distance_metric: str = 'euclidean', # recommended values: 'euclidean' and 'cosine'
                 n_jobs: Optional[int] = -1,
                 verbose = False,
-                n_landmark: Optional[int] = None,
-                random_landmarking: bool = False,
                 ):
         self.ndim = ndim
         self.seed=seed
@@ -44,12 +42,9 @@ class MultidimensionalScaling():
         self.distance_metric = distance_metric
         self.n_jobs=n_jobs
         self.verbose=verbose
-        self.n_landmark = n_landmark
-        self.random_landmarking = random_landmarking
 
         self.embedding = None
         self.distance_matrix = None  # Store computed distance matrix
-        self._landmark_indices = None
 
     def classic(self, D):
         """Fast CMDS using random SVD
@@ -138,82 +133,6 @@ class MultidimensionalScaling():
         )
         return Y
 
-    def _select_landmarks(self, n_samples):
-        """Select landmark indices.
-
-        Parameters
-        ----------
-        n_samples : int
-            Total number of samples
-
-        Returns
-        -------
-        landmark_indices : ndarray of shape (n_landmark,)
-        """
-        if self.random_landmarking:
-            rng = np.random.RandomState(self.seed)
-            indices = rng.choice(n_samples, self.n_landmark, replace=False)
-            indices.sort()
-            return indices
-        else:
-            return np.linspace(0, n_samples - 1, self.n_landmark, dtype=int)
-
-    def _extend_to_nonlandmarks(self, X, landmark_indices, landmark_embedding, k=8):
-        """Extend landmark embedding to all points via inverse-distance-weighted interpolation.
-
-        Parameters
-        ----------
-        X : ndarray, shape (n_samples, n_features)
-            Full dataset
-        landmark_indices : ndarray of shape (n_landmark,)
-            Indices of landmarks in X
-        landmark_embedding : ndarray, shape (n_landmark, n_components)
-            Embedding of landmark points
-        k : int
-            Number of nearest landmarks to use for interpolation
-
-        Returns
-        -------
-        full_embedding : ndarray, shape (n_samples, n_components)
-        """
-        n_samples = X.shape[0]
-        full_embedding = np.empty((n_samples, landmark_embedding.shape[1]))
-
-        # Place landmark embeddings
-        full_embedding[landmark_indices] = landmark_embedding
-
-        # Find non-landmark indices
-        all_indices = np.arange(n_samples)
-        mask = np.ones(n_samples, dtype=bool)
-        mask[landmark_indices] = False
-        nonlandmark_indices = all_indices[mask]
-
-        if len(nonlandmark_indices) == 0:
-            return full_embedding
-
-        # Compute distances from non-landmarks to landmarks
-        X_landmarks = X[landmark_indices]
-        X_nonlandmarks = X[nonlandmark_indices]
-        D_nl = cdist(X_nonlandmarks, X_landmarks, metric=self.distance_metric)
-
-        # Find k nearest landmarks using argpartition
-        k_actual = min(k, len(landmark_indices))
-        knn_indices = np.argpartition(D_nl, k_actual, axis=1)[:, :k_actual]
-
-        # Gather distances to k nearest landmarks
-        rows = np.arange(len(nonlandmark_indices))[:, None]
-        knn_dists = D_nl[rows, knn_indices]
-
-        # Inverse-distance weights (add small epsilon to avoid division by zero)
-        weights = 1.0 / (knn_dists + 1e-10)
-        weights /= weights.sum(axis=1, keepdims=True)
-
-        # Weighted average of landmark embeddings
-        knn_embeddings = landmark_embedding[knn_indices]  # (n_nonlandmarks, k, n_components)
-        full_embedding[nonlandmark_indices] = np.einsum('ij,ijk->ik', weights, knn_embeddings)
-
-        return full_embedding
-
     def embed_MDS(self, X):
         """Performs classic, metric, and non-metric MDS
 
@@ -244,30 +163,16 @@ class MultidimensionalScaling():
                 "'{}' was passed.".format(self.solver)
             )
 
-        n_samples = X.shape[0]
-        use_landmarks = (self.n_landmark is not None and self.n_landmark < n_samples)
-
-        if use_landmarks:
-            self._landmark_indices = self._select_landmarks(n_samples)
-            X_landmarks = X[self._landmark_indices]
-            self.distance_matrix = squareform(pdist(X_landmarks, self.distance_metric))
-            D = self.distance_matrix
-        else:
-            self._landmark_indices = None
-            self.distance_matrix = squareform(pdist(X, self.distance_metric))
-            D = self.distance_matrix
+        self.distance_matrix = squareform(pdist(X, self.distance_metric))
+        D = self.distance_matrix
 
         # initialize all by CMDS
         Y_classic = self.classic(D)
         if self.how == "classic":
-            if use_landmarks:
-                Y_full = self._extend_to_nonlandmarks(X, self._landmark_indices, Y_classic)
-                self.embedding = Y_full
-                return Y_full
             self.embedding = Y_classic
             return Y_classic
 
-        # metric is next fastest
+        # metric step
         if self.solver == "sgd":
             Y = self.sgd(D, init=Y_classic)
         elif self.solver == "smacof":
@@ -275,24 +180,16 @@ class MultidimensionalScaling():
         else:
             raise RuntimeError
 
+        # re-orient to classic
+        _, Y, _ = scipy.spatial.procrustes(Y_classic, Y)
+
         if self.how == "metric":
-            # re-orient to classic
-            _, Y, _ = scipy.spatial.procrustes(Y_classic, Y)
-            if use_landmarks:
-                Y_full = self._extend_to_nonlandmarks(X, self._landmark_indices, Y)
-                self.embedding = Y_full
-                return Y_full
             self.embedding = Y
             return Y
 
         # nonmetric is slowest
         Y = self.smacof(D, init=Y, metric=False)
-        # re-orient to classic
         _, Y, _ = scipy.spatial.procrustes(Y_classic, Y)
-        if use_landmarks:
-            Y_full = self._extend_to_nonlandmarks(X, self._landmark_indices, Y)
-            self.embedding = Y_full
-            return Y_full
         self.embedding = Y
         return Y
 
@@ -310,8 +207,6 @@ class MDSModule(LatentModule):
         n_jobs: Optional[int] = -1,
         verbose = False,
         fit_fraction: float = 1.0,  # Fraction of data used for fitting
-        n_landmark: Optional[int] = None,
-        random_landmarking: bool = False,
         **kwargs
     ):
         super().__init__(n_components=n_components, init_seed=random_state, **kwargs)
@@ -322,9 +217,7 @@ class MDSModule(LatentModule):
                                             solver=solver,
                                             distance_metric=distance_metric,
                                             n_jobs=n_jobs,
-                                            verbose=verbose,
-                                            n_landmark=n_landmark,
-                                            random_landmarking=random_landmarking)
+                                            verbose=verbose)
 
     def fit(self, x: Tensor, y: Tensor | None = None) -> None:
         """Fits MDS on all of data."""
@@ -380,9 +273,6 @@ class MDSModule(LatentModule):
         uses internally, normalized by (n-1) so eigenvalues represent variance.
         This is computed as G = -0.5 * H * D^2 * H' / (n-1) where H is
         the centering matrix and D is the distance matrix.
-
-        When landmarks are used, returns the n_landmark x n_landmark Gram matrix
-        (the structure MDS operated on).
 
         Args:
             ignore_diagonal: If True, set diagonal entries to zero. Default False.
