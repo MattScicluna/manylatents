@@ -77,6 +77,12 @@ class PHATEModule(LatentModule):
                     "Install with: pip install manylatents[torchdr] "
                     "or use backend='gpu_phate'."
                 )
+            if self.random_landmarking:
+                warnings.warn(
+                    "backend='torchdr' does not support random landmarking; "
+                    "random_landmarking is ignored.",
+                    UserWarning,
+                )
             from torchdr import PHATE
 
             return PHATE(
@@ -84,8 +90,6 @@ class PHATEModule(LatentModule):
                 k=self.knn,
                 t=self.t,
                 alpha=self.decay,
-                n_landmarks=self.n_landmark,
-                random_landmarking=self.random_landmarking,
                 device=resolve_device(self.device),
                 random_state=self.random_state,
                 backend=None,
