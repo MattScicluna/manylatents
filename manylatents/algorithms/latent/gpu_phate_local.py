@@ -1,8 +1,4 @@
-"""Local TorchDR-style PHATE implementation for manylatents.
-
-This module vendors the PHATE and PHATEAffinity logic used in TorchDR so
-manylatents can run the same algorithm without importing torchdr.
-"""
+"""Local GPU PHATE implementation for manylatents."""
 
 from __future__ import annotations
 
