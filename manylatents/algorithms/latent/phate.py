@@ -1,3 +1,4 @@
+import warnings
 from typing import Optional, Union
 
 import numpy as np
@@ -6,7 +7,7 @@ from torch import Tensor
 
 from .latent_module_base import LatentModule, _to_numpy, _to_output
 from ...utils.kernel_utils import symmetric_diffusion_operator
-from ...utils.backend import resolve_backend, resolve_device, torchdr_knn_to_dense
+from ...utils.backend import check_torchdr_available, resolve_device
 
 
 class PHATEModule(LatentModule):
@@ -45,16 +46,45 @@ class PHATEModule(LatentModule):
         self.fit_fraction = fit_fraction
         self.random_state = random_state
         self.random_landmarking = random_landmarking
-
-        self._resolved_backend = resolve_backend(backend)
+        self._resolved_backend = self._resolve_phate_backend(backend)
         self.model = self._create_model()
+
+    @staticmethod
+    def _resolve_phate_backend(backend: str | None) -> str | None:
+        if backend is None or backend == "sklearn":
+            return None
+        if backend == "torchdr":
+            warnings.warn(
+                "backend='torchdr' is kept for compatibility. "
+                "Prefer backend='gpu_phate' for GPU PHATE.",
+                UserWarning,
+            )
+            return "torchdr"
+        if backend == "gpu_phate":
+            return "gpu_phate"
+        if backend == "auto":
+            # Auto policy: prefer local GPU PHATE over TorchDR PHATE.
+            return "gpu_phate" if torch.cuda.is_available() else None
+        raise ValueError(
+            f"Unknown backend: {backend!r}. Use None, 'sklearn', 'torchdr', 'gpu_phate', or 'auto'."
+        )
 
     def _create_model(self):
         if self._resolved_backend == "torchdr":
+            if not check_torchdr_available():
+                raise ImportError(
+                    "PHATE backend='torchdr' requested but torchdr is not installed. "
+                    "Install with: pip install manylatents[torchdr] "
+                    "or use backend='gpu_phate'."
+                )
+            if self.random_landmarking:
+                warnings.warn(
+                    "backend='torchdr' does not support random landmarking; "
+                    "random_landmarking is ignored.",
+                    UserWarning,
+                )
             from torchdr import PHATE
 
-            # TorchDR PHATE param mapping: knn->k, decay->alpha
-            # TorchDR PHATE does NOT support faiss/keops, force backend=None
             return PHATE(
                 n_components=self.n_components,
                 k=self.knn,
@@ -62,7 +92,21 @@ class PHATEModule(LatentModule):
                 alpha=self.decay,
                 device=resolve_device(self.device),
                 random_state=self.random_state,
-                backend=None,  # TorchDR PHATE only supports None
+                backend=None,
+            )
+        if self._resolved_backend == "gpu_phate":
+            from .gpu_phate_local import PHATE
+
+            return PHATE(
+                n_components=self.n_components,
+                k=self.knn,
+                t=self.t,
+                alpha=self.decay,
+                n_landmarks=self.n_landmark,
+                random_landmarking=self.random_landmarking,
+                device=resolve_device(self.device),
+                random_state=self.random_state,
+                backend=None,
             )
         else:
             from phate import PHATE
@@ -89,7 +133,7 @@ class PHATEModule(LatentModule):
         n_samples = x_np.shape[0]
         n_fit = max(1, int(self.fit_fraction * n_samples))
 
-        if self._resolved_backend == "torchdr":
+        if self._resolved_backend in {"torchdr", "gpu_phate"}:
             import torch as th
             x_torch = th.from_numpy(x_np[:n_fit]).float()
             if resolve_device(self.device) == "cuda":
@@ -112,7 +156,7 @@ class PHATEModule(LatentModule):
 
         x_np = _to_numpy(x)
 
-        if self._resolved_backend == "torchdr":
+        if self._resolved_backend in {"torchdr", "gpu_phate"}:
             import torch as th
             x_torch = th.from_numpy(x_np).float()
             if resolve_device(self.device) == "cuda":
@@ -140,7 +184,7 @@ class PHATEModule(LatentModule):
         x_np = _to_numpy(x)
         n_fit = max(1, int(self.fit_fraction * x_np.shape[0]))
 
-        if self._resolved_backend == "torchdr":
+        if self._resolved_backend in {"torchdr", "gpu_phate"}:
             import torch as th
             x_torch = th.from_numpy(x_np[:n_fit]).float()
             if resolve_device(self.device) == "cuda":
@@ -179,9 +223,14 @@ class PHATEModule(LatentModule):
             K = self.kernel_matrix(ignore_diagonal=ignore_diagonal)
             return symmetric_diffusion_operator(K)
         else:
-            if self._resolved_backend == "torchdr":
-                # TorchDR PHATE stores affinity_in_ as NxN dense in log-space
-                A = torch.exp(self.model.affinity_in_.detach()).cpu().numpy()
+            if self._resolved_backend in {"torchdr", "gpu_phate"}:
+                if hasattr(self.model, "diff_op_"):
+                    A = self.model.diff_op_.detach().cpu().numpy()
+                else:
+                    raise NotImplementedError(
+                        "affinity_matrix(use_symmetric=False) is not available for backend='torchdr' "
+                        "when diff_op_ is not exposed."
+                    )
             else:
                 diff_op = self.model.diff_op
                 A = np.asarray(diff_op)
@@ -203,9 +252,13 @@ class PHATEModule(LatentModule):
         if not self._is_fitted:
             raise RuntimeError("PHATE model is not fitted yet. Call `fit` first.")
 
-        if self._resolved_backend == "torchdr":
-            # TorchDR PHATE stores affinity_in_ as NxN dense in log-space
-            K = torch.exp(self.model.affinity_in_.detach()).cpu().numpy()
+        if self._resolved_backend in {"torchdr", "gpu_phate"}:
+            if hasattr(self.model, "kernel_"):
+                K = self.model.kernel_.detach().cpu().numpy()
+            else:
+                raise NotImplementedError(
+                    "kernel_matrix() is not available for backend='torchdr' when kernel_ is not exposed."
+                )
         else:
             K = np.asarray(self.model.graph.K.todense())
 
