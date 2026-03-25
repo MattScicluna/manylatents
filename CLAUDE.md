@@ -89,25 +89,26 @@ A LatentModule may use gradients internally — the distinction is API surface, 
 def metric_fn(embeddings: np.ndarray, dataset=None, module=None, cache=None, **kwargs) -> float | dict
 ```
 
-All metrics share a `cache` dict for deduplicated kNN/eigenvalue computation. Three evaluation contexts: `embedding`, `dataset`, `module`. Programmatic API: `compute_metric(name, embeddings=X, **kwargs)` — kwargs pass through the registry to the function signature. To add a parameter to a metric, add it to the function signature + `default_params` in `@register_metric` + config YAML.
+All metrics share a `cache` dict for deduplicated kNN/eigenvalue computation. Three evaluation contexts: `embedding`, `dataset`, `module`. Programmatic APIs: `compute_metric(name, embeddings=X, **kwargs)` for single metrics, `evaluate_metrics(names, embeddings=X)` for batched evaluation with shared cache. To add a parameter to a metric, add it to the function signature + `default_params` in `@register_metric` + config YAML.
 
 **Data contract**: `LatentOutputs = dict[str, Any]` — required key `"embeddings"`, optional `"scores"`, `"label"`, `"metadata"`. (`EmbeddingOutputs` is a deprecated alias.)
 
 ## Config System
 
-Hydra config groups under `manylatents/configs/`:
+Hydra config groups live under `manylatents/configs/`. **Don't hardcode config names** — discover them:
 
+```bash
+ls manylatents/configs/algorithms/latent/   # available LatentModule configs
+ls manylatents/configs/algorithms/lightning/ # available LightningModule configs
+ls manylatents/configs/data/                # datasets
+ls manylatents/configs/metrics/embedding/   # embedding metrics
+ls manylatents/configs/metrics/dataset/     # dataset metrics
+ls manylatents/configs/metrics/module/      # module metrics
+ls manylatents/configs/callbacks/embedding/ # callbacks
+ls manylatents/configs/cluster/             # cluster profiles
 ```
-algorithms/latent/      pca, umap, tsne, phate, diffusionmap, mds, aa, multiscale_phate, noop, classifier, leiden, spectral_clustering
-algorithms/lightning/   ae_reconstruction, aanet_reconstruction, latent_ode, hf_trainer
-data/                   swissroll, torus, saddle_surface, gaussian_blobs, dla_tree, precomputed, test_data
-metrics/embedding/      trustworthiness, continuity, knn_preservation, persistent_homology, fractal_dimension, anisotropy, ...
-metrics/dataset/        stratification, admixture_laplacian, geodesic_distance_correlation
-metrics/module/         spectral_gap_ratio, spectral_decay_rate, affinity_spectrum, connected_components, ...
-callbacks/embedding/    default, minimal, save_embeddings, wandb_log_scores
-logger/                 none, wandb
-cluster/                mila, mila_remote, narval
-```
+
+For registered metrics: `uv run python -c "from manylatents.metrics import list_metrics; print(list_metrics())"`
 
 Metric configs use `_partial_: True` with nested structure:
 ```yaml
@@ -168,8 +169,9 @@ See `CONTRIBUTING.md` for the full 4-step pipeline.
 | `main.py` | CLI entry point |
 | `api.py` | Python API (`run()`) |
 | `experiment.py` | Core engine: `run_algorithm()`, `evaluate_outputs()`, `prewarm_cache()` |
+| `evaluate.py` | Standalone evaluation: `evaluate_metrics()` for programmatic metric batches |
 | `metrics/metric.py` | Metric protocol definition |
-| `metrics/registry.py` | `@register_metric` decorator, `list_metrics()` |
+| `metrics/registry.py` | `@register_metric` decorator, `list_metrics()`, `compute_metric()` |
 | `utils/metrics.py` | `compute_knn()`, `compute_svd_cache()` — shared cache infrastructure |
 | `configs/__init__.py` | Hydra SearchPathPlugin + ConfigStore registration |
 | `data/capabilities.py` | Dataset capability detection |
@@ -191,7 +193,7 @@ See `CONTRIBUTING.md` for the full 4-step pipeline.
 ## Tests
 
 ```bash
-uv run pytest tests/ -x -q                          # core tests (171 pass)
+uv run pytest tests/ -x -q                          # core tests (363 pass)
 uv run pytest manylatents/callbacks/tests/ -x -q     # callback tests
 uv run pytest manylatents/lightning/callbacks/tests/  # lightning callback tests
 uv run mkdocs build --strict                         # docs build
