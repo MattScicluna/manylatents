@@ -132,7 +132,11 @@ def _subsample_dataset_metadata(dataset: object, indices: np.ndarray) -> object:
         logger.debug(f"Subsampled longitude shape: {subsampled_ds._longitude.shape}")
 
     if hasattr(dataset, "population_label"):
-        subsampled_ds._population_label = dataset.population_label.iloc[indices]
+        pop_label = dataset.population_label
+        if hasattr(pop_label, "iloc"):
+            subsampled_ds._population_label = pop_label.iloc[indices]
+        else:
+            subsampled_ds._population_label = pop_label[indices]
         logger.debug(
             f"Subsampled population_label shape: {subsampled_ds._population_label.shape}"
         )
@@ -588,3 +592,201 @@ class FixedIndexSampling:
         subsampled_ds = _subsample_dataset_metadata(dataset, self.indices)
 
         return subsampled_embeddings, subsampled_ds, self.indices
+
+
+class BalancedLabelSampling:
+    """
+    Balanced sampling via median truncation.
+
+    Reads labels from a dataset attribute (like StratifiedSampling),
+    computes the median cluster size, caps all clusters at that median,
+    and preserves smaller clusters fully.
+
+    Example:
+        Cluster sizes: A=1000, B=200, C=50
+        Median: m=200
+        Sampling: A->200, B->200, C->50
+        Total = 450
+    """
+
+    def __init__(
+        self,
+        stratify_by: str = "population_label",
+        seed: int = 42,
+    ):
+        self.stratify_by = stratify_by
+        self.seed = seed
+
+    def sample(
+        self,
+        embeddings: np.ndarray,
+        dataset: object,
+        n_samples: Optional[int] = None,
+        fraction: Optional[float] = None,
+        seed: Optional[int] = None,
+        labels: Optional[np.ndarray] = None,
+    ) -> Tuple[np.ndarray, object, np.ndarray]:
+        """
+        Balanced sample via median truncation.
+
+        Args:
+            embeddings: Embedding array to sample from.
+            dataset: Dataset object with metadata.
+            n_samples: Ignored (output size determined by median truncation).
+            fraction: Ignored (output size determined by median truncation).
+            seed: Random seed (defaults to self.seed).
+            labels: Optional explicit labels array. If provided, bypasses
+                dataset attribute lookup (used by DiffusionCondensationSampling).
+
+        Returns:
+            Tuple of (embeddings, dataset, indices).
+        """
+        seed = seed if seed is not None else self.seed
+        rng = np.random.default_rng(seed)
+
+        # Get labels
+        if labels is None:
+            if not hasattr(dataset, self.stratify_by):
+                raise AttributeError(
+                    f"Dataset missing '{self.stratify_by}' and no explicit labels provided"
+                )
+            labels = getattr(dataset, self.stratify_by)
+            if hasattr(labels, "values"):
+                labels = labels.values  # pandas Series -> numpy
+
+        unique_labels, label_indices = np.unique(labels, return_inverse=True)
+        counts = np.bincount(label_indices)
+        median_size = int(np.median(counts))
+
+        logger.info(
+            f"BalancedLabelSampling: {len(unique_labels)} clusters, "
+            f"sizes {counts.tolist()}, median={median_size} (seed={seed})"
+        )
+
+        selected_indices = []
+        for cluster_idx, cluster_count in enumerate(counts):
+            cluster_positions = np.where(label_indices == cluster_idx)[0]
+            cap = min(cluster_count, median_size)
+            if cluster_count <= median_size:
+                selected_indices.extend(cluster_positions)
+            else:
+                sampled = rng.choice(cluster_positions, size=cap, replace=False)
+                selected_indices.extend(sampled)
+
+        indices = np.sort(np.array(selected_indices))
+
+        subsampled_embeddings = embeddings[indices]
+        subsampled_ds = _subsample_dataset_metadata(dataset, indices)
+
+        logger.info(
+            f"BalancedLabelSampling: {embeddings.shape[0]} -> {len(indices)} samples"
+        )
+
+        return subsampled_embeddings, subsampled_ds, indices
+
+
+class DiffusionCondensationSampling:
+    """
+    Unsupervised balanced sampling via diffusion condensation.
+
+    Runs Multiscale PHATE's diffusion condensation on the raw data
+    to discover cluster structure, then delegates to BalancedLabelSampling
+    for median-truncated balanced subsampling.
+
+    Requires the ``multiscale_phate`` package (optional dependency).
+    """
+
+    def __init__(
+        self,
+        target_clusters: Optional[int] = 10,
+        landmarks: int = 2000,
+        knn: int = 5,
+        decay: int = 40,
+        n_pca: Optional[int] = None,
+        n_jobs: int = 1,
+        seed: int = 42,
+    ):
+        self.target_clusters = target_clusters
+        self.landmarks = landmarks
+        self.knn = knn
+        self.decay = decay
+        self.n_pca = n_pca
+        self.n_jobs = n_jobs
+        self.seed = seed
+
+    def _select_scale(self, model) -> int:
+        """Pick the condensation scale to extract cluster labels from.
+
+        If target_clusters is None (auto mode), uses the gradient-based
+        salient level heuristic from Multiscale PHATE (model.levels[-2]).
+
+        If target_clusters is an int, scans NxTs from index 1 onward
+        (guaranteeing at least one condensation step) and picks the first
+        scale where the number of unique clusters <= target_clusters.
+        Falls back to the last (coarsest) scale if never satisfied.
+        """
+        if self.target_clusters is None:
+            if len(model.levels) < 2:
+                return model.levels[-1]
+            return model.levels[-2]
+
+        for i in range(1, len(model.NxTs)):
+            n_unique = len(np.unique(model.NxTs[i]))
+            if n_unique <= self.target_clusters:
+                return i
+        # Fallback: coarsest scale
+        return len(model.NxTs) - 1
+
+    def sample(
+        self,
+        embeddings: np.ndarray,
+        dataset: object,
+        n_samples: Optional[int] = None,
+        fraction: Optional[float] = None,
+        seed: Optional[int] = None,
+    ) -> Tuple[np.ndarray, object, np.ndarray]:
+        """
+        Discover clusters via diffusion condensation and balanced-sample.
+
+        Args:
+            embeddings: Embedding array to sample from.
+            dataset: Dataset object — must have .data attribute with raw data.
+            n_samples: Ignored (output size determined by median truncation).
+            fraction: Ignored (output size determined by median truncation).
+            seed: Random seed (defaults to self.seed).
+
+        Returns:
+            Tuple of (embeddings, dataset, indices).
+        """
+        from multiscale_phate import Multiscale_PHATE
+
+        seed = seed if seed is not None else self.seed
+
+        logger.info(
+            f"DiffusionCondensationSampling: fitting Multiscale PHATE on "
+            f"{dataset.data.shape[0]} samples (target_clusters={self.target_clusters})"
+        )
+
+        model = Multiscale_PHATE(
+            landmarks=self.landmarks,
+            knn=self.knn,
+            decay=self.decay,
+            n_pca=self.n_pca,
+            n_jobs=self.n_jobs,
+            random_state=seed,
+        )
+        model.fit(dataset.data)
+
+        scale_idx = self._select_scale(model)
+        cluster_labels = model.NxTs[scale_idx]
+        n_clusters = len(np.unique(cluster_labels))
+
+        logger.info(
+            f"DiffusionCondensationSampling: selected scale {scale_idx}, "
+            f"{n_clusters} clusters"
+        )
+
+        balanced_sampler = BalancedLabelSampling(seed=seed)
+        return balanced_sampler.sample(
+            embeddings, dataset, labels=cluster_labels
+        )
