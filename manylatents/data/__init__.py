@@ -95,10 +95,15 @@ def _discover_datasets() -> None:
             # Register DataModules
             if 'DataModule' in name:
                 base_name = name.replace('DataModule', '')
+                snake = _to_snake_case(base_name)
+                collapsed = base_name.lower()  # e.g. swissroll
                 variants = [
-                    name,  # SwissRollDataModule
-                    base_name,  # SwissRoll (as datamodule)
-                    _to_snake_case(base_name) + '_datamodule',  # swiss_roll_datamodule
+                    name,                    # SwissRollDataModule
+                    base_name,               # SwissRoll (as datamodule)
+                    snake + '_datamodule',   # swiss_roll_datamodule
+                    snake,                   # swiss_roll
+                    collapsed,               # swissroll
+                    collapsed + 'datamodule',  # swissrolldatamodule
                 ]
                 for variant in set(variants):
                     if variant not in _DATAMODULE_REGISTRY:

@@ -150,8 +150,10 @@ def test_sampling_dataset_reduces_data_before_fit():
         },
     )
     emb_shape = result["embeddings"].shape[0]
-    # swissroll default: 10 distributions * 100 pts = 1000
-    assert emb_shape < 1000, f"Expected fewer than 1000 samples, got {emb_shape}"
+    # With 50% sampling, embeddings should be roughly half the full dataset.
+    # SwissRoll class default: 100 * 50 = 5000, Hydra config: 10 * 100 = 1000.
+    # Either way, 50% sampling means < 3000 and > 0.
+    assert emb_shape < 3000, f"Expected fewer than 3000 samples after 50% sampling, got {emb_shape}"
     assert emb_shape > 0
     assert "lid" in result["scores"]
 

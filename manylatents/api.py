@@ -7,9 +7,10 @@ full Hydra DictConfig and routing through a single Hydra config, the API
 resolves string names to Python objects (DataModules, algorithms, metrics)
 and delegates to :func:`~manylatents.experiment.run_experiment`.
 
-Hydra is still used internally for *name resolution* (e.g. ``"swissroll"``
--> ``SwissRollDataModule``, ``"pca"`` -> ``PCAModule``), but the engine
-itself operates on plain Python objects.
+Hydra is only used as a fallback for complex configs (dicts with
+``_target_`` keys or extension components not in the Python registry).
+Common string names (``"swissroll"``, ``"pca"``) resolve via Python
+registries without touching Hydra.
 
 Example:
     # Single algorithm
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Hydra helpers (used only for string-name resolution)
+# Hydra helpers (fallback for configs not in Python registries)
 # ---------------------------------------------------------------------------
 
 
@@ -96,6 +97,15 @@ def _resolve_datamodule(input_data=None, data=None, seed=42, **kwargs):
         return PrecomputedDataModule(data=input_data, seed=seed, **kwargs)
 
     if data is not None:
+        # Fast path: Python registry (no Hydra)
+        from manylatents.data import get_datamodule
+
+        try:
+            return get_datamodule(data, random_state=seed)
+        except (ValueError, TypeError):
+            pass
+
+        # Fallback: Hydra config lookup (extension datasets not in Python registry)
         import hydra as _hydra
         from omegaconf import OmegaConf
 
@@ -151,6 +161,15 @@ def _resolve_algorithm(algorithm=None, algorithms=None, datamodule=None, seed=42
 
     # --- String shorthand: algorithm="pca" ---
     if isinstance(algorithm, str):
+        # Fast path: Python registry (no Hydra)
+        from manylatents.algorithms.latent import get_algorithm
+
+        try:
+            cls = get_algorithm(algorithm)
+            return cls()  # default params
+        except KeyError:
+            pass
+        # Fallback: Hydra compose
         algorithms = {"latent": algorithm}
 
     if algorithms is None:
@@ -177,7 +196,17 @@ def _resolve_algorithm(algorithm=None, algorithms=None, datamodule=None, seed=42
         )
 
     if isinstance(algo_value, str):
-        # String name -> Hydra compose
+        # Fast path: Python registry (latent algorithms only)
+        if algo_type == "latent":
+            from manylatents.algorithms.latent import get_algorithm
+
+            try:
+                cls = get_algorithm(algo_value)
+                return cls()
+            except KeyError:
+                pass
+
+        # Fallback: Hydra compose
         overrides = [f"algorithms/{algo_type}={algo_value}"]
         if seed is not None:
             overrides.append(f"seed={seed}")
