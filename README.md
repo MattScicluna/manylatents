@@ -74,20 +74,13 @@ cd manylatents && uv sync
 ```python
 from manylatents.api import run
 
-result = run(
-    data="swissroll",
-    algorithms={"latent": "pca"},
-    metrics={"trustworthiness": {
-        "_target_": "manylatents.metrics.trustworthiness.Trustworthiness",
-        "_partial_": True, "n_neighbors": 5
-    }}
-)
+result = run(data="swissroll", algorithm="pca", metrics=["trustworthiness"])
 
 embeddings = result["embeddings"]   # (n, d) ndarray
 scores     = result["scores"]       # {"trustworthiness": 0.95}
 
 # chain: PCA 50d -> PHATE 2d
-result2 = run(input_data=result["embeddings"], algorithms={"latent": "phate"})
+result2 = run(input_data=result["embeddings"], algorithm="phate")
 ```
 
 ---
@@ -95,22 +88,26 @@ result2 = run(input_data=result["embeddings"], algorithms={"latent": "phate"})
 ## architecture
 
 ```
-┌────────────┐      ┌───────────────────┐      ┌────────────────┐
-│   Config   │─────►│    Algorithm      │─────►│  LatentOutputs  │
-│            │      │                   │      │                │
-│ algorithms │      │  LatentModule     │      │ dict[str, Any] │
-│ data       │      │    fit(x)         │      │ "embeddings"   │
-│ metrics    │      │    transform(x)   │      └───────┬────────┘
-│ callbacks  │      │                   │              │
-│ logger     │      │  LightningModule  │       ┌──────▼────────┐
-└────────────┘      │    trainer.fit()  │       │   Evaluate    │
-                    │    encode(x)      │       │               │
-                    └───────────────────┘       │ prewarm_cache │
-                                               │ compute_knn   │
-                                               │ metric_fn(    │
-                                               │  ...,         │
-                                               │  cache=cache) │
-                                               └───────────────┘
+  CLI                         API
+  manylatents ...             run(data=, algorithm=, ...)
+       │                           │
+       ▼                           ▼
+  ┌─────────┐               ┌───────────┐
+  │ main.py │               │  api.py   │
+  │ Hydra   │               │ registries│
+  └────┬────┘               └─────┬─────┘
+       │    instantiate objects    │
+       └──────────┬───────────────┘
+                  ▼
+        ┌──────────────────┐      ┌────────────────┐
+        │  experiment.py   │─────►│  evaluate.py   │
+        │  run_experiment()│      │  evaluate()    │
+        │                  │      │  prewarm_cache │
+        │  LatentModule    │      │  compute_knn   │
+        │    fit/transform │      │  metric_fn(    │
+        │  LightningModule │      │   cache=cache) │
+        │    trainer.fit   │      └────────────────┘
+        └──────────────────┘
 ```
 
 Two base classes, one decision rule:
@@ -126,10 +123,11 @@ Both produce `LatentOutputs` — a dict keyed by `"embeddings"`. All metrics rec
 
 ## [algorithms](https://latent-reasoning-works.github.io/manylatents/algorithms/)
 
-> 12 algorithms -- 8 latent modules, 4 lightning modules
+> 17 algorithms -- 12 latent modules, 5 lightning modules
 
-PCA, t-SNE, UMAP, PHATE, DiffusionMap, MDS, Archetypes, MultiscalePHATE,
-Autoencoder, AANet, LatentODE, HF Trainer.
+PCA, t-SNE, UMAP, PHATE, DiffusionMap, MDS, MultiscalePHATE, Merging,
+Classifier, Leiden, ReebGraph, SelectiveCorrection,
+Autoencoder, AANet, LatentODE, HF Trainer, Reconstruction AE.
 
 `neighborhood_size=k` sweeps kNN uniformly across algorithms.
 
