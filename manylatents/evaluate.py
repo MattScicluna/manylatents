@@ -7,11 +7,13 @@ contains the cache pre-warming infrastructure (``extract_k_requirements``,
 
 This module has NO imports from ``manylatents.experiment``.
 """
+from __future__ import annotations
+
 import copy as _copy
 import inspect
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -105,8 +107,8 @@ def prewarm_cache(
     dataset,
     module=None,
     knn_cache_dir=None,
-    cache: Optional[dict] = None,
-    outputs: Optional[dict] = None,
+    cache: dict | None = None,
+    outputs: dict | None = None,
 ) -> dict:
     """Pre-compute kNN and eigenvalues based on metric requirements.
 
@@ -304,9 +306,9 @@ def evaluate(
     dataset=None,
     module=None,
     metrics=None,
-    sampling: Optional[dict] = None,
-    cache_dir: Optional[str] = None,
-    cache: Optional[dict] = None,
+    sampling: dict | None = None,
+    cache_dir: str | None = None,
+    cache: dict | None = None,
     **kwargs,
 ) -> dict[str, Any]:
     """Unified metric evaluation entry point.
@@ -412,9 +414,9 @@ def evaluate_metrics(
     embeddings: np.ndarray,
     *,
     metrics: list[str],
-    module: Optional[object] = None,
-    dataset: Optional[object] = None,
-    cache: Optional[dict] = None,
+    module: object | None = None,
+    dataset: object | None = None,
+    cache: dict | None = None,
     **kwargs,
 ) -> dict[str, Any]:
     """Evaluate named metrics on embeddings without Hydra.
