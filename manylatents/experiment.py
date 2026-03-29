@@ -1,20 +1,17 @@
+from __future__ import annotations
+
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-import lightning
 import numpy as np
 import torch
-try:
-    import wandb
-    wandb.init  # verify real package, not wandb/ output dir
-except (ImportError, AttributeError):
-    wandb = None
 from lightning import (
     LightningDataModule,
     LightningModule,
     Trainer,
+    seed_everything,
 )
 
 from manylatents.algorithms.latent.latent_module_base import LatentModule
@@ -25,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 from manylatents.evaluate import (  # noqa: F401  -- backward compat re-exports
-    _flatten_metric_result,
     extract_k_requirements,
     prewarm_cache,
 )
@@ -36,7 +32,7 @@ from manylatents.evaluate import (  # noqa: F401  -- backward compat re-exports
 # ---------------------------------------------------------------------------
 
 
-def _load_precomputed_from_datamodule(datamodule: LightningDataModule) -> Optional[Dict[str, Any]]:
+def _load_precomputed_from_datamodule(datamodule: LightningDataModule) -> dict[str, Any] | None:
     """Load precomputed embeddings from a datamodule's configured path.
 
     Looks for ``path`` or ``precomputed_path`` in ``datamodule.hparams`` and
@@ -98,16 +94,16 @@ def run_experiment(
     algorithm,
     trainer: Trainer,
     *,
-    embedding_callbacks: Optional[List[EmbeddingCallback]] = None,
+    embedding_callbacks: list[EmbeddingCallback] | None = None,
     metrics=None,
     metrics_cfg=None,
     sampling=None,
     seed: int = 42,
     eval_only: bool = False,
-    pretrained_ckpt: Optional[str] = None,
-    cache_dir: Optional[str] = None,
+    pretrained_ckpt: str | None = None,
+    cache_dir: str | None = None,
     wandb_run=None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Hydra-free experiment engine.
 
     Runs the full experiment pipeline — seed, data extraction, optional
@@ -146,7 +142,7 @@ def run_experiment(
     from manylatents.evaluate import evaluate as _evaluate
 
     # ---- 1. Seed ----
-    lightning.seed_everything(seed, workers=True)
+    seed_everything(seed, workers=True)
 
     # ---- 2. Data setup ----
     datamodule.setup()
@@ -154,7 +150,7 @@ def run_experiment(
     test_loader = datamodule.test_dataloader()
     field_index, data_source = determine_data_source(train_loader)
 
-    results: Dict[str, Any] = {}
+    results: dict[str, Any] = {}
 
     # ---- 3. Eval-only path ----
     if eval_only:
@@ -198,7 +194,7 @@ def run_experiment(
         t_total_start = time.perf_counter()
         t_step_start = time.perf_counter()
         latents = None
-        model_metrics: Dict[str, Any] = {}
+        model_metrics: dict[str, Any] = {}
 
         if isinstance(algorithm, LatentModule):
             # ---- LatentModule path ----
@@ -286,7 +282,7 @@ def run_experiment(
                     ds = datamodule.train_dataset
 
                 t_eval_start = time.perf_counter()
-                results["scores"] = _evaluate(
+                embedding_scores = _evaluate(
                     results["embeddings"],
                     dataset=ds,
                     module=algorithm if isinstance(algorithm, LatentModule) else None,
@@ -295,13 +291,14 @@ def run_experiment(
                     cache_dir=cache_dir,
                 )
                 eval_time = time.perf_counter() - t_eval_start
+                results.setdefault("scores", {}).update(embedding_scores)
                 total_time = time.perf_counter() - t_total_start
 
                 results["metadata"]["eval_time"] = eval_time
                 results["metadata"]["total_time"] = total_time
 
     # ---- 5. Run embedding callbacks ----
-    callback_outputs: Dict[str, Any] = {}
+    callback_outputs: dict[str, Any] = {}
     if results and embedding_callbacks:
         for cb in embedding_callbacks:
             cb_result = cb.on_latent_end(dataset=datamodule.test_dataset, embeddings=results)
@@ -322,12 +319,12 @@ def run_experiment(
                 scalar_metrics[f"metrics/{name}"] = float(val[0])
             elif np.ndim(val) == 0:
                 scalar_metrics[f"metrics/{name}"] = float(val)
-        if scalar_metrics and wandb is not None:
-            wandb.log(scalar_metrics)
+        if scalar_metrics:
+            wandb_run.log(scalar_metrics)
             logger.info(f"Auto-logged {len(scalar_metrics)} metrics to wandb: {list(scalar_metrics.keys())}")
 
-    if wandb_run is not None and wandb is not None:
-        wandb.finish()
+    if wandb_run is not None:
+        wandb_run.finish()
 
     logger.info("Engine run complete.")
 
@@ -341,7 +338,7 @@ def _evaluate_lightningmodule(
     trainer: Trainer,
     datamodule,
     metrics_cfg=None,
-) -> Tuple[Dict[str, Any], Optional[float]]:
+) -> tuple[dict[str, Any], float | None]:
     """Evaluate a LightningModule without requiring a full Hydra cfg.
 
     This is the Hydra-free counterpart of the old ``evaluate_lightningmodule``.
@@ -368,10 +365,10 @@ def _evaluate_lightningmodule(
         return {}, None
 
     base_metrics = results[0]
-    custom_metrics: Dict[str, Any] = {}
+    custom_metrics: dict[str, Any] = {}
 
     # Model-level metrics from config (if any)
-    model_metrics_cfg: Dict[str, Any] = {}
+    model_metrics_cfg: dict[str, Any] = {}
     if metrics_cfg is not None:
         if hasattr(metrics_cfg, "get"):
             model_metrics_cfg = metrics_cfg.get("model", {}) or {}
