@@ -159,6 +159,27 @@ def test_sampling_dataset_reduces_data_before_fit():
 
 
 # ---------------------------------------------------------------------------
+# 5b. Pre-fit balanced label sampling can use dataset metadata labels
+# ---------------------------------------------------------------------------
+
+def test_sampling_dataset_balanced_label_with_metadata():
+    """BalancedLabelSampling should work pre-fit when stratifying by metadata."""
+    result = run(
+        data="gaussian_blob",
+        algorithms=_PCA_ALGO,
+        sampling={
+            "dataset": {
+                "_target_": "manylatents.utils.sampling.BalancedLabelSampling",
+                "stratify_by": "metadata",
+                "seed": 42,
+            }
+        },
+    )
+
+    assert result["embeddings"].shape[0] > 0
+
+
+# ---------------------------------------------------------------------------
 # 6. Post-fit sampling: full embeddings returned, evaluation on subset
 # ---------------------------------------------------------------------------
 
