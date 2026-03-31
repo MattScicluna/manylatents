@@ -1,0 +1,31 @@
+defaults:
+  - default
+
+_target_: manylatents.data.dlatree.DLATreeFromGraphDataModule
+
+n_dim: 100
+random_state: ${seed}
+sigma: 0.5
+mode: full
+test_split: 0.2
+shuffle_traindata: false
+save_dir: ${hydra:runtime.output_dir}
+
+# Same topology as dla_tree_from_graph.yaml with one large branch.
+# Visible data edges: edge 1 has 1000 samples, edges 2-8 have 300 each.
+graph_edges:
+  - [1, 2, 1, 1000]
+  - [2, 3, 2, 300]
+  - [8, 13, 3, 300]
+  - [4, 5, 4, 300]
+  - [6, 7, 5, 300]
+  - [2, 10, 6, 300]
+  - [11, 12, 7, 300]
+  - [6, 9, 8, 300]
+  - [13, 4, 9, 50]
+  - [5, 6, 10, 50]
+  - [10, 11, 11, 50]
+  - [2, 8, 12, 50]
+
+excluded_edges: [9, 10, 11, 12]
+sampling_density_factors: null
