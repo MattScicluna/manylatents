@@ -12,9 +12,9 @@ shuffle_traindata: false
 save_dir: ${hydra:runtime.output_dir}
 
 # Same topology as dla_tree_from_graph.yaml with one large branch.
-# Visible data edges: edge 1 has 1000 samples, edges 2-8 have 300 each.
+# Visible data edges: edge 1 has 5000 samples, edges 2-8 have 300 each.
 graph_edges:
-  - [1, 2, 1, 1000]
+  - [1, 2, 1, 5000]
   - [2, 3, 2, 300]
   - [8, 13, 3, 300]
   - [4, 5, 4, 300]
