@@ -179,6 +179,7 @@ class DLATreeFromGraphDataModule(LightningDataModule):
         sigma: float = 0.5,
         save_graph_viz: bool = True,
         save_dir: str = "outputs",
+        sampling_density_factors: Optional[Dict[int, float]] = None,
         mode: str = 'full',
         **kwargs
     ):
@@ -201,6 +202,7 @@ class DLATreeFromGraphDataModule(LightningDataModule):
         self.sigma = sigma
         self.save_graph_viz = save_graph_viz
         self.save_dir = save_dir
+        self.sampling_density_factors = sampling_density_factors
 
         self.mode = mode
 
@@ -223,6 +225,7 @@ class DLATreeFromGraphDataModule(LightningDataModule):
                 sigma=self.sigma,
                 save_graph_viz=self.save_graph_viz,
                 save_dir=self.save_dir,
+                sampling_density_factors=self.sampling_density_factors,
             )
             self.test_dataset = self.train_dataset
 
@@ -236,6 +239,7 @@ class DLATreeFromGraphDataModule(LightningDataModule):
                 sigma=self.sigma,
                 save_graph_viz=self.save_graph_viz,
                 save_dir=self.save_dir,
+                sampling_density_factors=self.sampling_density_factors,
             )
 
             test_size = int(len(self.dataset) * self.test_split)

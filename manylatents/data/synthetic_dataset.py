@@ -1324,6 +1324,8 @@ class DLATreeFromGraph(SyntheticDataset):
         save_dir: str = "outputs",
         # Gap functionality: simply exclude these edge_ids from data generation
         excluded_edges: Optional[List] = None,
+        # Optional post-generation per-edge density scaling on visible labels
+        sampling_density_factors: Optional[Dict[int, float]] = None,
     ):
         """
         Generate a DLA (Diffusion-Limited Aggregation) tree from explicit graph topology.
@@ -1371,6 +1373,14 @@ class DLATreeFromGraph(SyntheticDataset):
             These edges are skipped during data generation but shown as dashed lines
             in the debug visualization. Useful for simulating missing populations
             or discontinuities in the tree.
+
+        sampling_density_factors : dict[int, float], optional
+            Optional per-visible-label density multipliers applied after graph generation.
+            Keys are visible edge labels (after any gap renumbering), and values are
+            multiplicative factors:
+            - ``factor < 1`` down-samples that label
+            - ``factor = 1`` leaves it unchanged
+            - ``factor > 1`` oversamples with replacement
         
         Visualization:
         --------------
@@ -1424,6 +1434,7 @@ class DLATreeFromGraph(SyntheticDataset):
         self.sigma = sigma
         self.save_graph_viz = save_graph_viz
         self.save_dir = save_dir
+        self.sampling_density_factors = sampling_density_factors or {}
         
         # Generate the data using simplified approach
         data, graph, metadata = self._generate_simplified()
@@ -1477,6 +1488,7 @@ class DLATreeFromGraph(SyntheticDataset):
 
         # Step 3: Subset to visible nodes only
         self._subset_to_visible_nodes()
+        self._apply_sampling_density_factors_to_visible()
 
     def _build_complete_adjacency_matrix(self):
         """
@@ -1652,6 +1664,41 @@ class DLATreeFromGraph(SyntheticDataset):
         # Store final dataset
         self.data = M_visible
         self.metadata = metadata_visible
+        self.active_visible_indices = self.visible_indices
+
+    def _apply_sampling_density_factors_to_visible(self):
+        """Apply optional per-label density multipliers on visible samples."""
+        if not self.sampling_density_factors:
+            return
+
+        rng = np.random.default_rng(self.random_state)
+        labels = np.asarray(self.metadata)
+
+        selected_local = []
+        for label in np.unique(labels):
+            label_int = int(label)
+            factor = self.sampling_density_factors.get(label_int)
+            if factor is None:
+                factor = self.sampling_density_factors.get(str(label_int), 1.0)
+            factor = float(factor)
+            if factor <= 0:
+                raise ValueError(
+                    f"sampling_density_factors[{label_int}] must be > 0, got {factor}"
+                )
+
+            label_positions = np.where(labels == label)[0]
+            target_count = max(1, int(round(len(label_positions) * factor)))
+            sampled = rng.choice(
+                label_positions,
+                size=target_count,
+                replace=target_count > len(label_positions),
+            )
+            selected_local.append(sampled)
+
+        selected_local = np.sort(np.concatenate(selected_local))
+        self.data = self.data[selected_local]
+        self.metadata = self.metadata[selected_local]
+        self.active_visible_indices = self.visible_indices[selected_local]
 
     def _generate_simplified(self):
         """
@@ -1855,9 +1902,10 @@ class DLATreeFromGraph(SyntheticDataset):
         if include_gaps:
             return geodesic_dist_complete
 
-        # Use visible_indices to extract distances for only the visible samples
+        # Use active_visible_indices to support optional post-generation resampling.
         # This aligns perfectly with dataset.data row order
-        return geodesic_dist_complete[np.ix_(self.visible_indices, self.visible_indices)]
+        active_visible_indices = getattr(self, "active_visible_indices", self.visible_indices)
+        return geodesic_dist_complete[np.ix_(active_visible_indices, active_visible_indices)]
 
     def get_graph(self):
         """Return the precomputed adjacency graph built during data generation."""
