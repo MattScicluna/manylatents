@@ -180,9 +180,25 @@ def run_experiment(
         pre_fit_indices = None
         if sampling is not None and "dataset" in sampling:
             dataset_sampler = sampling["dataset"]
-            pre_fit_indices = dataset_sampler.get_indices(
-                train_tensor.numpy() if torch.is_tensor(train_tensor) else train_tensor
-            )
+            sampler_input = train_tensor.numpy() if torch.is_tensor(train_tensor) else train_tensor
+            sampler_kwargs: dict[str, Any] = {}
+            if train_dataset is not None:
+                sampler_kwargs["dataset"] = train_dataset
+            if train_labels is not None:
+                sampler_kwargs["labels"] = (
+                    train_labels.cpu().numpy()
+                    if isinstance(train_labels, torch.Tensor)
+                    else np.asarray(train_labels)
+                )
+            try:
+                pre_fit_indices = dataset_sampler.get_indices(
+                    sampler_input, **sampler_kwargs
+                )
+            except TypeError as exc:
+                # Backward compatibility for samplers that do not accept kwargs.
+                if "unexpected keyword argument" not in str(exc):
+                    raise
+                pre_fit_indices = dataset_sampler.get_indices(sampler_input)
             train_tensor = train_tensor[pre_fit_indices]
             test_tensor = test_tensor[pre_fit_indices]
             if train_labels is not None:
